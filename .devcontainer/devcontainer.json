@@ -1,0 +1,71 @@
+{
+	"name": "Qlib Dev Container",
+
+	// Use docker-compose to manage containers
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "qlib",
+	"workspaceFolder": "/workspace",
+
+	// Features to add to dev container
+	"features": {
+		"ghcr.io/devcontainers/features/github-cli:1": {}
+	},
+
+	// VS Code extensions to install
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python",
+				"ms-python.vscode-pylance",
+				"ms-python.debugpy",
+				"ms-toolsai.jupyter",
+				"ms-toolsai.jupyter-keymap",
+				"ms-toolsai.jupyter-renderers",
+				"GitHub.copilot",
+				"charliermarsh.ruff",
+				"ms-vscode.makefile-tools",
+				"mechatroner.rainbow-csv"
+			],
+			"settings": {
+				"python.defaultInterpreterPath": "/opt/conda/envs/qlib/bin/python",
+				"python.linting.enabled": true,
+				"python.linting.pylintEnabled": true,
+				"python.formatting.provider": "black",
+				"python.testing.pytestEnabled": true,
+				"python.testing.pytestArgs": [
+					"tests"
+				],
+				"jupyter.notebookFileRoot": "${workspaceFolder}",
+				"files.exclude": {
+					"**/__pycache__": true,
+					"**/.pytest_cache": true,
+					"**/.mypy_cache": true,
+					"**/.ruff_cache": true
+				}
+			}
+		}
+	},
+
+	// Forward ports for Jupyter and other services
+	"forwardPorts": [8888, 8080, 5000],
+	"portsAttributes": {
+		"8888": {
+			"label": "Jupyter",
+			"onAutoForward": "notify"
+		},
+		"8080": {
+			"label": "Web Service",
+			"onAutoForward": "notify"
+		},
+		"5000": {
+			"label": "Flask/Debug",
+			"onAutoForward": "notify"
+		}
+	},
+
+	// Run commands after container is created
+	"postCreateCommand": "pip install -e '.[dev]' && jupyter --version",
+
+	// Keep container running
+	"shutdownAction": "none"
+}

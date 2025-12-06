@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  qlib:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        PYTHON_VERSION: "3.10"
+    
+    container_name: qlib-dev
+    
+    # Mount the workspace
+    volumes:
+      - ..:/workspace:cached
+      - qlib-cache:/root/.cache
+      - qlib-conda:/opt/conda
+    
+    # Keep container running
+    stdin_open: true
+    tty: true
+    
+    # Environment variables
+    environment:
+      - PYTHONUNBUFFERED=1
+      - JUPYTER_ENABLE_LAB=yes
+    
+    # Port mappings
+    ports:
+      - "8888:8888"  # Jupyter
+      - "8080:8080"  # Web services
+      - "5000:5000"  # Flask/debug
+    
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 2G
+
+volumes:
+  qlib-cache:
+  qlib-conda:
