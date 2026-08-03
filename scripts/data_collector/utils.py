@@ -7,7 +7,6 @@ import importlib
 import time
 import bisect
 import pickle
-import random
 import requests
 import functools
 from pathlib import Path
@@ -21,6 +20,9 @@ from tqdm import tqdm
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 from bs4 import BeautifulSoup
+import baostock as bs
+
+from qlib.utils.pickle_utils import restricted_pickle_load
 
 HS_SYMBOLS_URL = "http://app.finance.ifeng.com/hq/list.php?type=stock_a&class={s_type}"
 
@@ -67,9 +69,16 @@ def get_calendar_list(bench_code="CSI300") -> List[pd.Timestamp]:
 
     logger.info(f"get calendar list: {bench_code}......")
 
-    def _get_calendar(url):
-        _value_list = requests.get(url, timeout=None).json()["data"]["klines"]
-        return sorted(map(lambda x: pd.Timestamp(x.split(",")[0]), _value_list))
+    def _get_calendar(end_date):
+        bs.login()
+        rs = bs.query_trade_dates(start_date="2005-01-01", end_date=end_date)
+        data_list = []
+        while (rs.error_code == "0") & rs.next():
+            data_list.append(rs.get_row_data())
+        bs.logout()
+        df = pd.DataFrame(data_list, columns=rs.fields)
+        trade_days = df[df["is_trading_day"] == "1"]["calendar_date"]
+        return sorted(map(pd.Timestamp, trade_days.to_list()))
 
     calendar = _CALENDAR_MAP.get(bench_code, None)
     if calendar is None:
@@ -80,30 +89,17 @@ def get_calendar_list(bench_code="CSI300") -> List[pd.Timestamp]:
             calendar = df.index.get_level_values(level="date").map(pd.Timestamp).unique().tolist()
         else:
             if bench_code.upper() == "ALL":
+                import akshare as ak  # pylint: disable=C0415
 
-                @deco_retry
-                def _get_calendar_from_month(month):
-                    _cal = []
-                    try:
-                        resp = requests.get(
-                            SZSE_CALENDAR_URL.format(month=month, random=random.random), timeout=None
-                        ).json()
-                        for _r in resp["data"]:
-                            if int(_r["jybz"]):
-                                _cal.append(pd.Timestamp(_r["jyrq"]))
-                    except Exception as e:
-                        raise ValueError(f"{month}-->{e}") from e
-                    return _cal
-
-                month_range = pd.date_range(start="2000-01", end=pd.Timestamp.now() + pd.Timedelta(days=31), freq="M")
-                calendar = []
-                for _m in month_range:
-                    cal = _get_calendar_from_month(_m.strftime("%Y-%m"))
-                    if cal:
-                        calendar += cal
-                calendar = list(filter(lambda x: x <= pd.Timestamp.now(), calendar))
+                trade_date_df = ak.tool_trade_date_hist_sina()
+                trade_date_list = trade_date_df["trade_date"].tolist()
+                trade_date_list = [pd.Timestamp(d) for d in trade_date_list]
+                dates = pd.DatetimeIndex(trade_date_list)
+                filtered_dates = dates[(dates >= "2000-01-04") & (dates <= pd.Timestamp.today().normalize())]
+                calendar = filtered_dates.tolist()
             else:
-                calendar = _get_calendar(CALENDAR_BENCH_URL_MAP[bench_code])
+                end_date = time.strftime("%Y-%m-%d", time.localtime())
+                calendar = _get_calendar(end_date=end_date)
         _CALENDAR_MAP[bench_code] = calendar
     logger.info(f"end of get calendar list: {bench_code}.")
     return calendar
@@ -280,7 +276,7 @@ def get_hs_stock_symbols() -> list:
         symbol_cache_path.parent.mkdir(parents=True, exist_ok=True)
         if symbol_cache_path.exists():
             with symbol_cache_path.open("rb") as fp:
-                cache_symbols = pickle.load(fp)
+                cache_symbols = restricted_pickle_load(fp)
                 symbols |= cache_symbols
         with symbol_cache_path.open("wb") as fp:
             pickle.dump(symbols, fp)
@@ -297,20 +293,14 @@ def get_us_stock_symbols(qlib_data_path: [str, Path] = None) -> list:
     -------
         stock symbols
     """
+    import akshare as ak  # pylint: disable=C0415
+
     global _US_SYMBOLS  # pylint: disable=W0603
 
     @deco_retry
     def _get_eastmoney():
-        url = "http://4.push2.eastmoney.com/api/qt/clist/get?pn=1&pz=10000&fs=m:105,m:106,m:107&fields=f12"
-        resp = requests.get(url, timeout=None)
-        if resp.status_code != 200:
-            raise ValueError("request error")
-
-        try:
-            _symbols = [_v["f12"].replace("_", "-P") for _v in resp.json()["data"]["diff"].values()]
-        except Exception as e:
-            logger.warning(f"request error: {e}")
-            raise
+        df = ak.get_us_stock_name()
+        _symbols = df["symbol"].to_list()
 
         if len(_symbols) < 8000:
             raise ValueError("request error")
